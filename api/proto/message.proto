@@ -1,0 +1,29 @@
+syntax = "proto3";
+package message;
+option go_package = "wowpow/pkg/api/message";
+
+import "google/protobuf/timestamp.proto";
+
+message Message {
+  Header header = 1;
+  oneof response {
+    Hashcach hashcach = 2;
+    string payload = 3;
+  }
+
+  enum Header {
+    close = 0;
+    challenge = 1;
+    resource = 2;
+  }
+}
+
+message Hashcach {
+  int32 version = 1;
+  int32 bits = 2;
+  google.protobuf.Timestamp date = 3;
+  string resource = 4;
+  string ext = 5;
+  string rand = 6;
+  string counter = 7;
+}

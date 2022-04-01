@@ -1,0 +1,28 @@
+version: '3'
+services:
+  server:
+    build:
+      context: ${PWD}
+      dockerfile: ${PWD}/build/Dockerfile
+      args:
+        - APPLICATION=wowserver
+    restart: unless-stopped
+    env_file:
+      - ${PWD}/.env
+    expose:
+      - "1666"
+    ports:
+      - 1666:1666
+  client:
+    build:
+      context: ${PWD}
+      dockerfile: ${PWD}/build/Dockerfile
+      args:
+        - APPLICATION=wowclient
+    restart: unless-stopped
+    env_file:
+      - ${PWD}/.env
+    environment:
+      - ADDR=server:1666
+    depends_on:
+      - server
