@@ -49,6 +49,7 @@ func main() {
 		server.WithListenersLimit(cfg.ServerListenersLimit),
 		server.WithBits(cfg.HashcashBits),
 		server.WithSecret(cfg.ServerSecret),
+		server.WithTimeout(cfg.Timeout),
 	)
 
 	a.Register(serv)

@@ -1,16 +1,19 @@
 package client
 
+//go:generate mockgen -package=mock -destination=./mock/client.go wowpow/pkg/client Dialer,Computer
+
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	"wowpow/internal/pkg/dialer"
 	"wowpow/internal/pkg/pow"
 	"wowpow/pkg/api/message"
 )
@@ -21,23 +24,29 @@ const (
 	nl                   byte = 10 // ascii code of new line
 )
 
+// Dialer sends calls throught any protocol (tcp)
+type Dialer interface {
+	Dial() (dialer.Conn, error)
+}
+
+// Computer waste time
+type Computer interface {
+	Compute(context.Context, *pow.Hashcach, int64) (*pow.Hashcach, error)
+}
+
 var (
 	ErrConnectionClose = fmt.Errorf("close")
 	ErrUnknownResponse = fmt.Errorf("unknown response")
 )
 
-type Computer interface {
-	Compute(context.Context, *pow.Hashcach, int) (*pow.Hashcach, error)
-}
-
-type WOWPOW struct {
+type WoWPoW struct {
 	computer Computer
-	address  string
+	dialer   Dialer
 	options  options
 }
 
 type connection struct {
-	conn       net.Conn
+	conn       dialer.Conn
 	writeCh    chan *message.Message
 	responseCh chan string
 	errCh      chan error
@@ -55,10 +64,11 @@ func (conn *connection) close() {
 	}
 }
 
-func NewWOWPOW(address string, computer Computer, opts ...Options) (*WOWPOW, error) {
-	w := &WOWPOW{
+// NewWoWPoW constructor creates WoWPoW client
+func NewWoWPoW(computer Computer, dialer Dialer, opts ...Options) (*WoWPoW, error) {
+	w := &WoWPoW{
 		computer: computer,
-		address:  address,
+		dialer:   dialer,
 	}
 
 	for i := range opts {
@@ -76,8 +86,9 @@ func NewWOWPOW(address string, computer Computer, opts ...Options) (*WOWPOW, err
 	return w, nil
 }
 
-func (w *WOWPOW) GetMessage(ctx context.Context) (string, error) {
-	conn, err := net.Dial("tcp", w.address)
+// GetMessage getting quote from remote server with pow challenge
+func (w *WoWPoW) GetMessage(ctx context.Context) (string, error) {
+	conn, err := w.dialer.Dial()
 	if err != nil {
 		return "", fmt.Errorf("connection error: %w", err)
 	}
@@ -130,18 +141,18 @@ func (w *WOWPOW) GetMessage(ctx context.Context) (string, error) {
 	}
 }
 
-func (w *WOWPOW) read(ctx context.Context, conn *connection) error {
+func (w *WoWPoW) read(ctx context.Context, conn *connection) error {
 	defer func() { _ = conn.conn.Close() }()
 
 	reader := bufio.NewReader(conn.conn)
 	for {
 		if err := ctx.Err(); err != nil {
-			break
+			return fmt.Errorf("reading error: %w", err)
 		}
 
 		res, err := reader.ReadString(nl)
 		if err != nil {
-			break
+			return fmt.Errorf("reading error: %w", err)
 		}
 
 		err = w.process(ctx, res, conn)
@@ -149,15 +160,18 @@ func (w *WOWPOW) read(ctx context.Context, conn *connection) error {
 			return fmt.Errorf("client read process error: %w", err)
 		}
 	}
-
-	return nil
 }
 
-func (w *WOWPOW) process(ctx context.Context, res string, conn *connection) error {
+func (w *WoWPoW) process(ctx context.Context, res string, conn *connection) error {
 	res = strings.Trim(res, string(nl))
 	msg := new(message.Message)
 
-	err := proto.Unmarshal([]byte(res), msg)
+	buf, err := base64.RawStdEncoding.DecodeString(res)
+	if err != nil {
+		return fmt.Errorf("decode hex message error: %w", err)
+	}
+
+	err = proto.Unmarshal(buf, msg)
 	if err != nil {
 		return fmt.Errorf("unmarshal response proto message error: %w", err)
 	}
@@ -175,11 +189,11 @@ func (w *WOWPOW) process(ctx context.Context, res string, conn *connection) erro
 	}
 }
 
-func (w *WOWPOW) close() error {
+func (w *WoWPoW) close() error {
 	return ErrConnectionClose
 }
 
-func (w *WOWPOW) challenge(ctx context.Context, msg *message.Message, conn *connection) error {
+func (w *WoWPoW) challenge(ctx context.Context, msg *message.Message, conn *connection) error {
 	hashcash := msg.GetHashcach()
 	if hashcash == nil {
 		return ErrUnknownResponse
@@ -190,7 +204,7 @@ func (w *WOWPOW) challenge(ctx context.Context, msg *message.Message, conn *conn
 		return fmt.Errorf("unmarshal response proto message error: %w", err)
 	}
 
-	hc, err = w.computer.Compute(ctx, hc, int(w.options.maxIterations))
+	hc, err = w.computer.Compute(ctx, hc, w.options.maxIterations)
 	if err != nil {
 		return fmt.Errorf("compute challenge error: %w", err)
 	}
@@ -203,7 +217,7 @@ func (w *WOWPOW) challenge(ctx context.Context, msg *message.Message, conn *conn
 	return nil
 }
 
-func (w *WOWPOW) write(ctx context.Context, connection *connection) error {
+func (w *WoWPoW) write(ctx context.Context, connection *connection) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -214,7 +228,10 @@ func (w *WOWPOW) write(ctx context.Context, connection *connection) error {
 				return fmt.Errorf("client proto message parse error: %w", err)
 			}
 
-			_, err = connection.conn.Write(bin)
+			buf := make([]byte, base64.RawStdEncoding.EncodedLen(len(bin)))
+			base64.RawStdEncoding.Encode(buf, bin)
+
+			_, err = connection.conn.Write(buf)
 			if err != nil {
 				return fmt.Errorf("client send message error: %w", err)
 			}

@@ -45,7 +45,7 @@ func New(s hash.Hasher, opts ...Options) *POW {
 }
 
 // Compute time waster. Do all useless load.
-func (p *POW) Compute(ctx context.Context, h *Hashcach, max int) (*Hashcach, error) {
+func (p *POW) Compute(ctx context.Context, h *Hashcach, max int64) (*Hashcach, error) {
 	if max > 0 {
 		for h.counter <= max {
 			if err := ctx.Err(); err != nil {

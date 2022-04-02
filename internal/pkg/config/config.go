@@ -9,6 +9,7 @@ import (
 	"github.com/kelseyhightower/envconfig"
 )
 
+// Config ...
 type Config struct {
 	Addr                         string        `envconfig:"ADDR"`
 	ServerSecret                 string        `envconfig:"SERVER_SECRET"`
@@ -19,6 +20,7 @@ type Config struct {
 	ClientMaxIterations          int64         `envconfig:"CLIENT_MAX_ITERATIONS"`
 }
 
+// Load load config
 func Load() (*Config, error) {
 	err := godotenv.Load()
 	if err != nil {

@@ -18,7 +18,7 @@ It could be reconfigured to use sha1 hash function.
 
 Was solved two corner problems of algorithm:
 - Pre-generation of challenges fixed by very short expiration time (2 minutes and could be configured by env param `HASHCASH_CHALLENGE_EXP_DURATION=5m`)
-- We are 100% sure, that all challenges produced by our server. It has extension field with generate secure sha256 hash. It contain resource, rand, timestamp and secret key which known only on server. Because of this we don't need to store any data in any database. Example of generated hashcash: `1:4:1648837394:127.0.0.1:49948:6e6c7d2af33b7db1cf92b9875852cc127bc91e64f06dada45851da4c123902e5:MzUwMjkyOTY4ODgzODcwOTgxOA==:MA==`
+- We are 100% sure, that all challenges produced by our server. It has extension field with generate secure sha256 hash. It contain resource, rand, timestamp and secret key which known only on server. Because of this we don't need to store any data in any database. Example of generated hashcash: `1:4:1648837394:127.0.0.1:6e6c7d2af33b7db1cf92b9875852cc127bc91e64f06dada45851da4c123902e5:C+7uY0Ff/Ac=:ZWE=`
 
 ## Simple run
 
@@ -30,6 +30,8 @@ make start
 
 ## Tests
 
+[![Tests](https://github.com/Halfi/wowpow/actions/workflows/tests.yml/badge.svg)](https://github.com/Halfi/wowpow/actions/workflows/tests.yml)
+
 ```shell
 make test
 ```
@@ -40,10 +42,19 @@ or for more detailed coverage
 make coverage
 ```
 
+## Lint
+
+[![Lint](https://github.com/Halfi/wowpow/actions/workflows/lint.yml/badge.svg)](https://github.com/Halfi/wowpow/actions/workflows/lint.yml)
+
+```shell
+make lint
+```
+
 ## Dependencies
 
-- [Go](https://go.dev) server and client implementation
+- [Go 1.16 or higher](https://go.dev) server and client implementation
 - [buf](https://buf.build/) alternate to the `protoc` protobuf generator
+- [golangci-lint](https://golangci-lint.run/usage/install/) linter
 - [Docker](https://www.docker.com/)
 - [Docker Compose](https://docs.docker.com/compose/)
 

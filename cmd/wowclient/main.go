@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"wowpow/internal/pkg/config"
+	"wowpow/internal/pkg/dialer"
 	"wowpow/internal/pkg/hash"
 	"wowpow/internal/pkg/pow"
 	"wowpow/pkg/client"
@@ -15,7 +16,6 @@ import (
 const maxRetries = 5
 
 func main() {
-
 	cfg, err := config.Load()
 	if err != nil {
 		log.Panicf("client stopped with error %s", err)
@@ -28,9 +28,9 @@ func main() {
 		pow.WithChallengeExpDuration(cfg.HashcashChallengeExpDuration),
 	)
 
-	wowpow, err := client.NewWOWPOW(
-		cfg.Addr,
+	wowpow, err := client.NewWoWPoW(
 		powInstance,
+		dialer.New(cfg.Addr),
 		client.WithTimeout(cfg.Timeout),
 		client.WithMaxIterations(cfg.ClientMaxIterations),
 	)
@@ -55,5 +55,4 @@ func main() {
 		fmt.Println(msg)
 		<-time.NewTimer(time.Second).C
 	}
-
 }

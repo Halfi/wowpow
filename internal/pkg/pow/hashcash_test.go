@@ -18,15 +18,17 @@ func TestExtSum(t *testing.T) {
 	var (
 		resource = "resource"
 		secret   = "secret"
-		rand     = 10
+		rand     = []byte{10}
 		date     = time.Unix(1648762844, 0)
-		expected = fmt.Sprintf("%s%d%s%d", resource, rand, secret, date.Unix())
+		expected = fmt.Sprintf("%s%s%s%d", resource, rand, secret, date.Unix())
 		a        = assert.New(t)
-		ctrl     = gomock.NewController(t)
-		hasher   = mock.NewMockHasher(ctrl)
+		hasher   = (mock.HasherMockParams{
+			HashTimes:  1,
+			HashReq:    gomock.Eq(expected),
+			HashRes:    expected,
+			HashResErr: nil,
+		}).NewHasher(gomock.NewController(t))
 	)
-
-	hasher.EXPECT().Hash(gomock.Eq(expected)).Return(expected, nil)
 
 	actual, err := extSum(resource, secret, rand, date, hasher)
 	a.Nil(err)
@@ -37,16 +39,18 @@ func TestExtSumErr(t *testing.T) {
 	var (
 		resource    = "resource"
 		secret      = "secret"
-		rand        = 10
+		rand        = []byte{10}
 		date        = time.Unix(1648762844, 0)
-		expected    = fmt.Sprintf("%s%d%s%d", resource, rand, secret, date.Unix())
+		expected    = fmt.Sprintf("%s%s%s%d", resource, rand, secret, date.Unix())
 		expectedErr = fmt.Errorf("expected error")
 		a           = assert.New(t)
-		ctrl        = gomock.NewController(t)
-		hasher      = mock.NewMockHasher(ctrl)
+		hasher      = (mock.HasherMockParams{
+			HashTimes:  1,
+			HashReq:    gomock.Eq(expected),
+			HashRes:    "",
+			HashResErr: expectedErr,
+		}).NewHasher(gomock.NewController(t))
 	)
-
-	hasher.EXPECT().Hash(gomock.Eq(expected)).Return("", expectedErr)
 
 	actual, err := extSum(resource, secret, rand, date, hasher)
 	a.Empty(actual)
@@ -57,8 +61,8 @@ func TestHashCashMappings(t *testing.T) {
 	a := assert.New(t)
 	hc := &Hashcach{
 		version: versionV1,
-		rand:    123,
-		counter: 10,
+		rand:    []byte{123},
+		counter: 234,
 	}
 
 	proto := hc.ToProto()
@@ -66,8 +70,8 @@ func TestHashCashMappings(t *testing.T) {
 		&message.Hashcach{
 			Version: versionV1,
 			Date:    timestamppb.New(time.Time{}),
-			Rand:    "MTIz",
-			Counter: "MTA=",
+			Rand:    "ew==",
+			Counter: "ZWE=",
 		},
 		proto,
 	)
@@ -79,94 +83,106 @@ func TestHashCashMappings(t *testing.T) {
 
 func TestVerifyExt(t *testing.T) {
 	hasherErr := fmt.Errorf("expected error")
+	ctrl := gomock.NewController(t)
+
 	for _, tCase := range []struct {
-		name              string
-		hashcash          *Hashcach
-		secret            string
-		hasherExpectedReq string
-		hasherRes         string
-		hasherErr         error
-		expectedErr       error
+		name        string
+		hashcash    *Hashcach
+		secret      string
+		hasherMock  mock.HasherMockParams
+		expectedErr error
 	}{
 		{
-			name: "success",
+			name: "positive",
 			hashcash: &Hashcach{
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			secret:            "secret",
-			hasherExpectedReq: "resource10secret1648762844",
-			hasherRes:         "resource10secret1648762844",
-			hasherErr:         nil,
-			expectedErr:       nil,
+			secret: "secret",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashRes:    "resource\nsecret1648762844",
+				HashResErr: nil,
+			},
+			expectedErr: nil,
 		},
 		{
 			name: "wrong ext",
 			hashcash: &Hashcach{
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
 				ext:      "wrong",
 			},
-			secret:            "secret",
-			hasherExpectedReq: "resource10secret1648762844",
-			hasherRes:         "resource10secret1648762844",
-			hasherErr:         nil,
-			expectedErr:       ErrExtInvalid,
+			secret: "secret",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashRes:    "resource\nsecret1648762844",
+				HashResErr: nil,
+			},
+			expectedErr: ErrExtInvalid,
 		},
 		{
 			name: "wrong hasher response",
 			hashcash: &Hashcach{
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			secret:            "secret",
-			hasherExpectedReq: "resource10secret1648762844",
-			hasherRes:         "wrong",
-			hasherErr:         nil,
-			expectedErr:       ErrExtInvalid,
+			secret: "secret",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashRes:    "wrong",
+				HashResErr: nil,
+			},
+			expectedErr: ErrExtInvalid,
 		},
 		{
 			name: "wrong hasher response",
 			hashcash: &Hashcach{
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			secret:            "secret",
-			hasherExpectedReq: "resource10secret1648762844",
-			hasherRes:         "wrong",
-			hasherErr:         nil,
-			expectedErr:       ErrExtInvalid,
+			secret: "secret",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashRes:    "wrong",
+				HashResErr: nil,
+			},
+			expectedErr: ErrExtInvalid,
 		},
 		{
 			name: "hasher error",
 			hashcash: &Hashcach{
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			secret:            "secret",
-			hasherExpectedReq: "resource10secret1648762844",
-			hasherRes:         "",
-			hasherErr:         hasherErr,
-			expectedErr:       hasherErr,
+			secret: "secret",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashRes:    "",
+				HashResErr: hasherErr,
+			},
+			expectedErr: hasherErr,
 		},
 	} {
 		t.Run(tCase.name, func(t *testing.T) {
 			var (
 				a      = assert.New(t)
-				ctrl   = gomock.NewController(t)
-				hasher = mock.NewMockHasher(ctrl)
+				hasher = tCase.hasherMock.NewHasher(ctrl)
 			)
-
-			hasher.EXPECT().Hash(gomock.Eq(tCase.hasherExpectedReq)).Return(tCase.hasherRes, tCase.hasherErr)
 
 			err := VerifyExt(tCase.secret, hasher)(tCase.hashcash)
 			a.ErrorIs(err, tCase.expectedErr)
@@ -175,7 +191,7 @@ func TestVerifyExt(t *testing.T) {
 }
 
 func TestRandomBytes(t *testing.T) {
-	assert.Greater(t, randomBytes(), 0)
+	assert.Greater(t, len(randomBytes()), 0)
 }
 
 func TestInitHashcash(t *testing.T) {

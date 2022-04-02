@@ -20,7 +20,7 @@ func TestIsHashCorrect(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "success",
+			name:     "positive",
 			hash:     "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
 			zeros:    5,
 			expected: true,
@@ -53,44 +53,44 @@ func TestIsHashCorrect(t *testing.T) {
 
 func TestPowCompute(t *testing.T) {
 	hasherErr := fmt.Errorf("expected error")
+	ctrl := gomock.NewController(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	deadCTX, deadCancel := context.WithCancel(context.Background())
 	deadCancel()
 
 	for _, tCase := range []struct {
-		name              string
-		ctx               context.Context
-		hashcash          *Hashcach
-		max               int
-		hasherExpectedReq gomock.Matcher
-		hasherCallTimes   int
-		hasherRes         string
-		hasherErr         error
-		expected          *Hashcach
-		expectedErr       error
+		name        string
+		ctx         context.Context
+		hashcash    *Hashcach
+		max         int64
+		hasherMock  mock.HasherMockParams
+		expected    *Hashcach
+		expectedErr error
 	}{
 		{
-			name: "success",
+			name: "positive",
 			ctx:  ctx,
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			max:               1,
-			hasherExpectedReq: gomock.Eq("0:5:1648762844:resource:resource10secret1648762844:MTA=:MA=="),
-			hasherCallTimes:   1,
-			hasherRes:         "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
-			hasherErr:         nil,
+			max: 1,
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("0:5:1648762844:resource:resource\nsecret1648762844:Cg==:MA=="),
+				HashRes:    "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
+				HashResErr: nil,
+			},
 			expected: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 				counter:  0,
 			},
 			expectedErr: nil,
@@ -100,17 +100,19 @@ func TestPowCompute(t *testing.T) {
 			ctx:  ctx,
 			hashcash: &Hashcach{
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			max:               1,
-			hasherCallTimes:   1,
-			hasherExpectedReq: gomock.Eq("0:0:1648762844:resource:resource10secret1648762844:MTA=:MA=="),
-			hasherRes:         "",
-			hasherErr:         hasherErr,
-			expected:          nil,
-			expectedErr:       hasherErr,
+			max: 1,
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Eq("0:0:1648762844:resource:resource\nsecret1648762844:Cg==:MA=="),
+				HashRes:    "",
+				HashResErr: hasherErr,
+			},
+			expected:    nil,
+			expectedErr: hasherErr,
 		},
 		{
 			name: "deadline exceeded",
@@ -118,17 +120,19 @@ func TestPowCompute(t *testing.T) {
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			max:               1,
-			hasherCallTimes:   2,
-			hasherExpectedReq: gomock.Any(),
-			hasherRes:         "d59d15c9a1842bc4563897803799e94f1f242d7e7e8c618f047e068211543998",
-			hasherErr:         nil,
-			expected:          nil,
-			expectedErr:       ErrMaxIterationsExceeded,
+			max: 1,
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  2,
+				HashReq:    gomock.Any(),
+				HashRes:    "d59d15c9a1842bc4563897803799e94f1f242d7e7e8c618f047e068211543998",
+				HashResErr: nil,
+			},
+			expected:    nil,
+			expectedErr: ErrMaxIterationsExceeded,
 		},
 		{
 			name: "dead ctx",
@@ -136,26 +140,21 @@ func TestPowCompute(t *testing.T) {
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			max:               1,
-			hasherCallTimes:   0,
-			hasherExpectedReq: gomock.Any(),
-			expected:          nil,
-			expectedErr:       ErrMaxIterationsExceeded,
+			max:         1,
+			expected:    nil,
+			expectedErr: ErrMaxIterationsExceeded,
 		},
 	} {
 		t.Run(tCase.name, func(t *testing.T) {
 			var (
 				a      = assert.New(t)
-				ctrl   = gomock.NewController(t)
-				hasher = mock.NewMockHasher(ctrl)
+				hasher = tCase.hasherMock.NewHasher(ctrl)
 				pow    = New(hasher)
 			)
-
-			hasher.EXPECT().Hash(tCase.hasherExpectedReq).Times(tCase.hasherCallTimes).Return(tCase.hasherRes, tCase.hasherErr)
 
 			actual, err := pow.Compute(tCase.ctx, tCase.hashcash, tCase.max)
 			a.Equal(tCase.expected, actual)
@@ -166,44 +165,44 @@ func TestPowCompute(t *testing.T) {
 
 func TestPowVerify(t *testing.T) {
 	hasherErr := fmt.Errorf("expected error")
+	ctrl := gomock.NewController(t)
 	now := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	for _, tCase := range []struct {
-		name              string
-		powOptions        []Options
-		hashcash          *Hashcach
-		resource          string
-		hasherExpectedReq gomock.Matcher
-		hasherCallTimes   int
-		hasherRes         string
-		hasherErr         error
-		expectedErr       error
+		name        string
+		powOptions  []Options
+		hashcash    *Hashcach
+		resource    string
+		hasherMock  mock.HasherMockParams
+		expectedErr error
 	}{
 		{
-			name: "success",
+			name: "positive",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     now,
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   1,
-			hasherRes:         "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
-			hasherErr:         nil,
-			expectedErr:       nil,
+			resource: "resource",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Any(),
+				HashRes:    "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
+				HashResErr: nil,
+			},
+			expectedErr: nil,
 		},
 		{
-			name: "success validate ext",
+			name: "positive validate ext",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     now,
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
 			powOptions: []Options{
 				WithValidateExtFunc(func(h *Hashcach) error {
@@ -212,145 +211,146 @@ func TestPowVerify(t *testing.T) {
 						&Hashcach{
 							bits:     5,
 							resource: "resource",
-							rand:     10,
+							rand:     []byte{10},
 							date:     now,
-							ext:      "resource10secret1648762844",
+							ext:      "resource\nsecret1648762844",
 						},
 						h,
 					)
 					return nil
 				}),
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   1,
-			hasherRes:         "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
-			hasherErr:         nil,
-			expectedErr:       nil,
+			resource: "resource",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Any(),
+				HashRes:    "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
+				HashResErr: nil,
+			},
+			expectedErr: nil,
 		},
 		{
-			name: "success duration",
+			name: "positive duration",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     now.Add(50 * time.Second),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
 			powOptions: []Options{
 				WithChallengeExpDuration(time.Minute),
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   1,
-			hasherRes:         "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
-			hasherErr:         nil,
-			expectedErr:       nil,
+			resource: "resource",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Any(),
+				HashRes:    "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
+				HashResErr: nil,
+			},
+			expectedErr: nil,
 		},
 		{
 			name: "wrong resource",
 			hashcash: &Hashcach{
 				resource: "resource",
 			},
-			resource:          "resource2",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   0,
-			expectedErr:       ErrWrongResource,
+			resource:    "resource2",
+			expectedErr: ErrWrongResource,
 		},
 		{
 			name: "challenge expired",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   0,
-			expectedErr:       ErrChallengeExpired,
+			resource:    "resource",
+			expectedErr: ErrChallengeExpired,
 		},
 		{
 			name: "hasher error",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Now(),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   1,
-			hasherRes:         "",
-			hasherErr:         hasherErr,
-			expectedErr:       hasherErr,
+			resource: "resource",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Any(),
+				HashRes:    "",
+				HashResErr: hasherErr,
+			},
+			expectedErr: hasherErr,
 		},
 		{
 			name: "wrong hash",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Now(),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   1,
-			hasherRes:         "d59d15c9a1842bc4563897803799e94f1f242d7e7e8c618f047e068211543998",
-			hasherErr:         nil,
-			expectedErr:       ErrWrongChallenge,
+			resource: "resource",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Any(),
+				HashRes:    "d59d15c9a1842bc4563897803799e94f1f242d7e7e8c618f047e068211543998",
+				HashResErr: nil,
+			},
+			expectedErr: ErrWrongChallenge,
 		},
 		{
 			name: "validate ext error",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     time.Now(),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
 			powOptions: []Options{
 				WithValidateExtFunc(func(h *Hashcach) error {
 					return hasherErr
 				}),
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   1,
-			hasherRes:         "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
-			hasherErr:         nil,
-			expectedErr:       hasherErr,
+			resource: "resource",
+			hasherMock: mock.HasherMockParams{
+				HashTimes:  1,
+				HashReq:    gomock.Any(),
+				HashRes:    "00000e89df98a05e524fdcd29d8040d64d0259e2d5109ca1998e567a3c1c1c68",
+				HashResErr: nil,
+			},
+			expectedErr: hasherErr,
 		},
 		{
 			name: "error duration",
 			hashcash: &Hashcach{
 				bits:     5,
 				resource: "resource",
-				rand:     10,
+				rand:     []byte{10},
 				date:     now.Add(-2 * time.Minute),
-				ext:      "resource10secret1648762844",
+				ext:      "resource\nsecret1648762844",
 			},
 			powOptions: []Options{
 				WithChallengeExpDuration(time.Minute),
 			},
-			resource:          "resource",
-			hasherExpectedReq: gomock.Any(),
-			hasherCallTimes:   0,
-			expectedErr:       ErrChallengeExpired,
+			resource:    "resource",
+			expectedErr: ErrChallengeExpired,
 		},
 	} {
 		t.Run(tCase.name, func(t *testing.T) {
 			var (
 				a      = assert.New(t)
-				ctrl   = gomock.NewController(t)
-				hasher = mock.NewMockHasher(ctrl)
+				hasher = tCase.hasherMock.NewHasher(ctrl)
 				pow    = New(hasher, tCase.powOptions...)
 			)
-
-			hasher.EXPECT().Hash(tCase.hasherExpectedReq).Times(tCase.hasherCallTimes).Return(tCase.hasherRes, tCase.hasherErr)
 
 			err := pow.Verify(ctx, tCase.hashcash, tCase.resource)
 			a.ErrorIs(err, tCase.expectedErr)

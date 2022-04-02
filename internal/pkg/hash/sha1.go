@@ -1,7 +1,7 @@
 package hash
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec
 	"encoding/hex"
 	"fmt"
 )
@@ -15,7 +15,8 @@ func NewSHA1() *SHA1 {
 }
 
 func (s *SHA1) Hash(str string) (string, error) {
-	sha := sha1.New()
+	// Weak cryptographic primitive. I know, I know..
+	sha := sha1.New() //nolint:gosec
 
 	_, err := sha.Write([]byte(str))
 	if err != nil {

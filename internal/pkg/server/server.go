@@ -5,6 +5,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -32,22 +33,27 @@ const (
 	defaultTimeout      = time.Minute
 )
 
+// Verifier verify hashcash
 type Verifier interface {
 	Verify(ctx context.Context, h *pow.Hashcach, resource string) error
 }
 
+// Messenger returns random quote
 type Messenger interface {
 	GetMessage() string
 }
 
+// Listener is an wrapper to create mocks
 type Listener interface {
 	net.Listener
 }
 
+// Conn is an wrapper to create mocks
 type Conn interface {
 	net.Conn
 }
 
+// Server main tcp server struct
 type Server struct {
 	lis       Listener
 	hasher    hash.Hasher
@@ -56,6 +62,7 @@ type Server struct {
 	options   options
 }
 
+// New constructor
 func New(lis Listener, hasher hash.Hasher, verifier Verifier, messenger Messenger, opts ...Options) *Server {
 	s := &Server{lis: lis, hasher: hasher, verifier: verifier, messenger: messenger}
 
@@ -74,10 +81,13 @@ func New(lis Listener, hasher hash.Hasher, verifier Verifier, messenger Messenge
 	return s
 }
 
+// Run main server loop.
 func (s *Server) Run(ctx context.Context) error {
 	log.Printf("listen tcp on addr %s", s.lis.Addr())
 	payloadChan := make(chan Conn, 1)
 	sem := semaphore.NewWeighted(s.options.listenersLimit)
+
+	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
 		for {
@@ -87,8 +97,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 			conn, err := s.lis.Accept()
 			if err != nil {
-				// connection closed
+				// connection closed. HTTP2 package detects closed connection same way.
 				if strings.Contains(err.Error(), "use of closed network connection") {
+					cancel()
 					return
 				}
 
@@ -116,8 +127,8 @@ func (s *Server) Run(ctx context.Context) error {
 				s.handle(ctx, conn)
 			}()
 		case <-ctx.Done():
-			// TODO implement correct closing connections, but this is another task.
-			// Here we can just close listener and all connections will be broken
+			// TODO implement correct client finalizing. This is poc and test task.
+			// Here we can just close listener and all connections will be broken.
 			return s.lis.Close()
 		}
 	}
@@ -136,7 +147,14 @@ func (s *Server) handle(ctx context.Context, conn Conn) {
 			break
 		}
 
-		msg, err := s.process(ctx, req, conn.RemoteAddr().String())
+		remoteAddr := conn.RemoteAddr()
+		addr := remoteAddr.(*net.TCPAddr)
+		if addr == nil {
+			fmt.Printf("wrong addr type: %+v", remoteAddr)
+			break
+		}
+
+		msg, err := s.process(ctx, req, addr.IP.String())
 		if err != nil {
 			if !errors.Is(err, ErrConnectionClose) {
 				fmt.Printf("err process request: %s", err)
@@ -158,7 +176,12 @@ func (s *Server) process(ctx context.Context, req, resource string) (*message.Me
 	req = strings.Trim(req, string(nl))
 	msg := new(message.Message)
 
-	err := proto.Unmarshal([]byte(req), msg)
+	buf, err := base64.RawStdEncoding.DecodeString(req)
+	if err != nil {
+		return nil, fmt.Errorf("decode hex message error: %w", err)
+	}
+
+	err = proto.Unmarshal(buf, msg)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal proto message error: %w", err)
 	}
@@ -221,7 +244,10 @@ func (s *Server) response(msg *message.Message, writer io.Writer) error {
 		return fmt.Errorf("server proto message response parse error: %w", err)
 	}
 
-	_, err = writer.Write(bin)
+	buf := make([]byte, base64.RawStdEncoding.EncodedLen(len(bin)))
+	base64.RawStdEncoding.Encode(buf, bin)
+
+	_, err = writer.Write(buf)
 	if err != nil {
 		return fmt.Errorf("server send message response error: %w", err)
 	}

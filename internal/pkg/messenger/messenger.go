@@ -12,6 +12,8 @@ type Messenger struct {
 	messages []string
 }
 
+// New constructor of messenger
+// Gets messages to memory from file system
 func New(f fs.FS) (*Messenger, error) {
 	file, err := f.Open("quotes.txt")
 	if err != nil {
@@ -29,9 +31,12 @@ func New(f fs.FS) (*Messenger, error) {
 		messages = append(messages, strings.Trim(quote, "\n"))
 	}
 
-	return &Messenger{messages: messages}, nil
+	// we don't need to catch read error
+	return &Messenger{messages: messages}, nil //nolint:nilerr
 }
 
+// GetMessage returns message (quote)
 func (m *Messenger) GetMessage() string {
-	return m.messages[rand.Intn(len(m.messages)-1)]
+	// this is not secure function, math/rand enough good
+	return m.messages[rand.Intn(len(m.messages)-1)] //nolint:gosec
 }

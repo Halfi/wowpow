@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -13,10 +14,14 @@ import (
 var ErrShutdownTimeout = fmt.Errorf("application shutdown forced")
 
 // Application - container of runnable objects with run logic and graceful shutdown
+// It has graceful shutdown mechanism. Application wait signal SIGINT.
+// When application catches SIGINT signal it cancel main context.
+// If after cancel all runners won't be stopped in shutdownTimeout interval, application will be force closed.
 type Application struct {
+	mu              sync.Mutex
 	shutdownTimeout time.Duration
 
-	runnables []Runnable
+	runnables []Runner
 	cancel    context.CancelFunc
 	force     chan interface{}
 }
@@ -29,14 +34,24 @@ func New(shutdownTimeout time.Duration) *Application {
 	}
 }
 
-type Runnable interface {
+// Runner interface which could be run in app
+type Runner interface {
+	// Run starts runner working
+	// Function should be blocking. All functions should catch ctx.Done() channel and correctly finalize their work.
+	// If it returns nil, it means that application runner finished work successfully
+	// If it returns error, it means that runner has exceptionally problem and application should be stopped
 	Run(ctx context.Context) error
 }
 
-func (a *Application) Register(r Runnable) {
+// Register register run class
+func (a *Application) Register(r Runner) {
 	a.runnables = append(a.runnables, r)
 }
 
+// Run application
+// This is blocking function. It will unblock in two keyses:
+//   - Any runner stopped with error
+//   - All runners stopped
 func (a *Application) Run(ctx context.Context) error {
 	ctx, a.cancel = context.WithCancel(ctx)
 
@@ -73,6 +88,9 @@ func (a *Application) wait(eg *errgroup.Group) error {
 }
 
 func (a *Application) stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if a.cancel != nil {
 		a.cancel()
 		a.cancel = nil
@@ -98,7 +116,7 @@ func (a *Application) waitForInterruption() {
 	a.stop()
 }
 
-func newRunFn(ctx context.Context, r Runnable) func() error {
+func newRunFn(ctx context.Context, r Runner) func() error {
 	return func() error {
 		return r.Run(ctx)
 	}

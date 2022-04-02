@@ -35,8 +35,8 @@ type Hashcach struct {
 	date     time.Time
 	resource string
 	ext      string
-	rand     int
-	counter  int
+	rand     []byte
+	counter  int64
 }
 
 func newHashcach(
@@ -45,8 +45,8 @@ func newHashcach(
 	date time.Time,
 	resource string,
 	ext string,
-	rand int,
-	counter int,
+	rand []byte,
+	counter int64,
 ) *Hashcach {
 	return &Hashcach{
 		version:  version,
@@ -75,7 +75,7 @@ func FromProto(hashcach *message.Hashcach) (*Hashcach, error) {
 		return nil, fmt.Errorf("counter base64 decode error: %w", err)
 	}
 
-	counter, err := strconv.Atoi(string(counterDecoded))
+	counter, err := strconv.ParseInt(string(counterDecoded), 16, 64)
 	if err != nil {
 		return nil, fmt.Errorf("counter parse int error: %w", err)
 	}
@@ -85,18 +85,13 @@ func FromProto(hashcach *message.Hashcach) (*Hashcach, error) {
 		return nil, fmt.Errorf("rand base64 decode error: %w", err)
 	}
 
-	rand, err := strconv.Atoi(string(randDecoded))
-	if err != nil {
-		return nil, fmt.Errorf("rand parse int error: %w", err)
-	}
-
 	return newHashcach(
 		versionV1,
 		hashcach.GetBits(),
 		t,
 		hashcach.GetResource(),
 		hashcach.GetExt(),
-		rand,
+		randDecoded,
 		counter,
 	), nil
 }
@@ -135,9 +130,9 @@ func (h *Hashcach) String() string {
 	buf.WriteString(":")
 	buf.WriteString(h.ext)
 	buf.WriteString(":")
-	buf.WriteString(base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(h.rand))))
+	buf.WriteString(base64.StdEncoding.EncodeToString(h.rand))
 	buf.WriteString(":")
-	buf.WriteString(base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(h.counter))))
+	buf.WriteString(base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(h.counter, 16))))
 	return buf.String()
 }
 
@@ -149,18 +144,19 @@ func (h *Hashcach) ToProto() *message.Hashcach {
 		Date:     timestamppb.New(h.date),
 		Resource: h.resource,
 		Ext:      h.ext,
-		Rand:     base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(h.rand))),
-		Counter:  base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(h.counter))),
+		Rand:     base64.StdEncoding.EncodeToString(h.rand),
+		Counter:  base64.StdEncoding.EncodeToString([]byte(strconv.FormatInt(h.counter, 16))),
 	}
 }
 
-func randomBytes() int {
+func randomBytes() []byte {
 	b, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
 	if err != nil {
-		b = big.NewInt(mrand.Int63n(math.MaxInt64))
+		// this is fallback in case of unweak rand function fall with error (exceptional case)
+		b = big.NewInt(mrand.Int63n(math.MaxInt64)) //nolint:gosec
 	}
 
-	return int(b.Int64())
+	return b.Bytes()
 }
 
 // extSum generates hash sum with hasher interface from fields:
@@ -168,10 +164,10 @@ func randomBytes() int {
 //    - randBytes - random number
 //    - secret    - secret known only on server
 //    - time      - timestamp
-func extSum(resource, secret string, randBytes int, t time.Time, hasher hash.Hasher) (string, error) {
+func extSum(resource, secret string, randBytes []byte, t time.Time, hasher hash.Hasher) (string, error) {
 	var ext bytes.Buffer
 	ext.WriteString(resource)
-	ext.WriteString(strconv.Itoa(randBytes))
+	ext.Write(randBytes)
 	ext.WriteString(secret)
 	ext.WriteString(strconv.Itoa(int(t.Unix())))
 

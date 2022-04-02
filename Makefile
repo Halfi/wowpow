@@ -15,11 +15,15 @@ genProto: gen
 
 .PHONY: test
 test: gen
-	@go test ./...  -coverprofile=coverage.txt -covermode=atomic
+	@go test $$(go list ./... | grep -v /mock) -coverprofile=coverage.txt -covermode=atomic -timeout 60s
 
 .PHONY: coverage
 coverage: test
 	@go tool cover -func=coverage.txt
+
+.PHONY: lint
+lint:
+	@golangci-lint --timeout 10m0s run
 
 .PHONY: start
 start:
