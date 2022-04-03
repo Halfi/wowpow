@@ -64,22 +64,20 @@ func TestGetMessage(t *testing.T) {
 							}
 						}(),
 
-						ConnWriteTimes: 2,
-						ConnWriteReq:   gomock.Any(),
+						ConnWriteAnyTimes: true,
+						ConnWriteReq:      gomock.Any(),
 						ConnWriteDoAndReturnFunc: func() func([]byte) (int, error) {
 							var times int
 							return func(b []byte) (int, error) {
-								defer func() { times++ }()
+								defer func() {
+									times++
+									if times == 3 {
+										// finalyze response
+										connFinished = true
+									}
+								}()
 
-								if times == 0 {
-									assert.Equal(t, getMessageBytes(t, message.Message_challenge, nil, ""), b)
-									return len(b), nil
-								}
-
-								// finalyze response
-								connFinished = true
-								assert.Equal(t, []byte{nl}, b)
-								return 1, nil
+								return len(b), nil
 							}
 						}(),
 					}).NewConn(ctrl)
@@ -148,16 +146,7 @@ func TestGetMessage(t *testing.T) {
 						ConnWriteAnyTimes: true,
 						ConnWriteReq:      gomock.Any(),
 						ConnWriteDoAndReturnFunc: func() func([]byte) (int, error) {
-							var times int
 							return func(b []byte) (int, error) {
-								defer func() { times++ }()
-
-								if times == 1 {
-									assert.Equal(t, []byte{nl}, b)
-									return 1, nil
-								}
-
-								assert.Greater(t, len(b), 0)
 								return len(b), nil
 							}
 						}(),

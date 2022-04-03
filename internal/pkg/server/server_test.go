@@ -118,7 +118,7 @@ func TestRun(t *testing.T) {
 						ConnRemoteAddrTimes: 1,
 						ConnRemoteAddrRes:   new(net.TCPAddr),
 
-						ConnCloseTimes: 1,
+						ConnCloseAnyTimes: true,
 
 						ConnReadTimes: 2,
 						ConnReadReq:   gomock.Any(),
@@ -213,7 +213,7 @@ func TestRun(t *testing.T) {
 						ConnRemoteAddrTimes: 1,
 						ConnRemoteAddrRes:   new(net.TCPAddr),
 
-						ConnCloseTimes: 1,
+						ConnCloseAnyTimes: true,
 
 						ConnReadTimes: 2,
 						ConnReadReq:   gomock.Any(),

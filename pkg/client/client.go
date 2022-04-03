@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"wowpow/internal/pkg/dialer"
@@ -19,9 +18,7 @@ import (
 )
 
 const (
-	defaultTimeout            = time.Minute
-	defaultMaxIterations      = 1 << 20
-	nl                   byte = 10 // ascii code of new line
+	nl byte = 10 // ascii code of new line
 )
 
 // Dialer sends calls throught any protocol (tcp)
@@ -45,25 +42,6 @@ type WoWPoW struct {
 	options  options
 }
 
-type connection struct {
-	conn       dialer.Conn
-	writeCh    chan *message.Message
-	responseCh chan string
-	errCh      chan error
-}
-
-func (conn *connection) initRequest() {
-	conn.writeCh <- &message.Message{
-		Header: message.Message_challenge,
-	}
-}
-
-func (conn *connection) close() {
-	conn.writeCh <- &message.Message{
-		Header: message.Message_close,
-	}
-}
-
 // NewWoWPoW constructor creates WoWPoW client
 func NewWoWPoW(computer Computer, dialer Dialer, opts ...Options) (*WoWPoW, error) {
 	w := &WoWPoW{
@@ -75,26 +53,20 @@ func NewWoWPoW(computer Computer, dialer Dialer, opts ...Options) (*WoWPoW, erro
 		opts[i](&w.options)
 	}
 
-	if w.options.timeout == 0 {
-		w.options.timeout = defaultTimeout
-	}
-
-	if w.options.maxIterations == 0 {
-		w.options.maxIterations = defaultMaxIterations
-	}
+	InitDefaultOptions(&w.options)
 
 	return w, nil
 }
 
 // GetMessage getting quote from remote server with pow challenge
 func (w *WoWPoW) GetMessage(ctx context.Context) (string, error) {
-	conn, err := w.dialer.Dial()
+	netConn, err := w.dialer.Dial()
 	if err != nil {
 		return "", fmt.Errorf("connection error: %w", err)
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = netConn.Close() }()
 
-	err = conn.SetDeadline(time.Now().Add(w.options.timeout))
+	err = netConn.SetDeadline(time.Now().Add(w.options.timeout))
 	if err != nil {
 		return "", fmt.Errorf("connection setting deadline error: %w", err)
 	}
@@ -102,49 +74,28 @@ func (w *WoWPoW) GetMessage(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, w.options.timeout)
 	defer cancel()
 
-	connection := &connection{
-		conn:       conn,
-		writeCh:    make(chan *message.Message, 1),
-		responseCh: make(chan string, 1),
-		errCh:      make(chan error, 1),
-	}
+	conn := NewConnection(netConn, w.options.maxProc)
 
-	connection.initRequest()
-	defer connection.close()
+	conn.SendInitRequest()
 
 	go func(ctx context.Context) {
 		<-ctx.Done()
-		connection.errCh <- ctx.Err()
+		conn.SetResponse("", ctx.Err())
 	}(ctx)
 
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		return w.read(ctx, connection)
-	})
-
-	eg.Go(func() error {
-		return w.write(ctx, connection)
-	})
-
 	go func() {
-		err := eg.Wait()
+		err := w.read(ctx, conn)
 		if err != nil {
-			connection.errCh <- err
+			conn.SetResponse("", err)
 		}
 	}()
 
-	select {
-	case response := <-connection.responseCh:
-		return response, nil
-	case err := <-connection.errCh:
-		return "", err
-	}
+	<-conn.Done()
+	return conn.GetResponse()
 }
 
-func (w *WoWPoW) read(ctx context.Context, conn *connection) error {
-	defer func() { _ = conn.conn.Close() }()
-
-	reader := bufio.NewReader(conn.conn)
+func (w *WoWPoW) read(ctx context.Context, conn *Connection) error {
+	reader := bufio.NewReader(conn.GetConnection())
 	for {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("reading error: %w", err)
@@ -162,7 +113,7 @@ func (w *WoWPoW) read(ctx context.Context, conn *connection) error {
 	}
 }
 
-func (w *WoWPoW) process(ctx context.Context, res string, conn *connection) error {
+func (w *WoWPoW) process(ctx context.Context, res string, conn *Connection) error {
 	res = strings.Trim(res, string(nl))
 	msg := new(message.Message)
 
@@ -182,7 +133,7 @@ func (w *WoWPoW) process(ctx context.Context, res string, conn *connection) erro
 	case message.Message_challenge:
 		return w.challenge(ctx, msg, conn)
 	case message.Message_resource:
-		conn.responseCh <- msg.GetPayload()
+		conn.SetResponse(msg.GetPayload(), nil)
 		return nil
 	default:
 		return ErrUnknownResponse
@@ -193,7 +144,7 @@ func (w *WoWPoW) close() error {
 	return ErrConnectionClose
 }
 
-func (w *WoWPoW) challenge(ctx context.Context, msg *message.Message, conn *connection) error {
+func (w *WoWPoW) challenge(ctx context.Context, msg *message.Message, conn *Connection) error {
 	hashcash := msg.GetHashcach()
 	if hashcash == nil {
 		return ErrUnknownResponse
@@ -209,38 +160,10 @@ func (w *WoWPoW) challenge(ctx context.Context, msg *message.Message, conn *conn
 		return fmt.Errorf("compute challenge error: %w", err)
 	}
 
-	conn.writeCh <- &message.Message{
+	conn.Send(&message.Message{
 		Header:   message.Message_resource,
 		Response: &message.Message_Hashcach{Hashcach: hc.ToProto()},
-	}
+	})
 
 	return nil
-}
-
-func (w *WoWPoW) write(ctx context.Context, connection *connection) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case req := <-connection.writeCh:
-			bin, err := proto.Marshal(req)
-			if err != nil {
-				return fmt.Errorf("client proto message parse error: %w", err)
-			}
-
-			buf := make([]byte, base64.RawStdEncoding.EncodedLen(len(bin)))
-			base64.RawStdEncoding.Encode(buf, bin)
-
-			_, err = connection.conn.Write(buf)
-			if err != nil {
-				return fmt.Errorf("client send message error: %w", err)
-			}
-
-			// send new line to finalize request
-			_, err = connection.conn.Write([]byte{nl})
-			if err != nil {
-				return fmt.Errorf("client send message error: %w", err)
-			}
-		}
-	}
 }
