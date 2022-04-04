@@ -16,13 +16,14 @@ import (
 
 func TestExtSum(t *testing.T) {
 	var (
-		resource = "resource"
-		secret   = "secret"
-		rand     = []byte{10}
-		date     = time.Unix(1648762844, 0)
-		expected = fmt.Sprintf("%s%s%s%d", resource, rand, secret, date.Unix())
-		a        = assert.New(t)
-		hasher   = (mock.HasherMockParams{
+		resource       = "resource"
+		secret         = "secret"
+		rand           = []byte{10}
+		bits     int32 = 5
+		date           = time.Unix(1648762844, 0)
+		expected       = fmt.Sprintf("%s%s%s%d%d", resource, rand, secret, date.Unix(), bits)
+		a              = assert.New(t)
+		hasher         = (mock.HasherMockParams{
 			HashTimes:  1,
 			HashReq:    gomock.Eq(expected),
 			HashRes:    expected,
@@ -30,21 +31,22 @@ func TestExtSum(t *testing.T) {
 		}).NewHasher(gomock.NewController(t))
 	)
 
-	actual, err := extSum(resource, secret, rand, date, hasher)
+	actual, err := extSum(resource, secret, bits, rand, date, hasher)
 	a.Nil(err)
 	a.Equal(expected, actual)
 }
 
 func TestExtSumErr(t *testing.T) {
 	var (
-		resource    = "resource"
-		secret      = "secret"
-		rand        = []byte{10}
-		date        = time.Unix(1648762844, 0)
-		expected    = fmt.Sprintf("%s%s%s%d", resource, rand, secret, date.Unix())
-		expectedErr = fmt.Errorf("expected error")
-		a           = assert.New(t)
-		hasher      = (mock.HasherMockParams{
+		resource          = "resource"
+		secret            = "secret"
+		rand              = []byte{10}
+		bits        int32 = 5
+		date              = time.Unix(1648762844, 0)
+		expected          = fmt.Sprintf("%s%s%s%d%d", resource, rand, secret, date.Unix(), bits)
+		expectedErr       = fmt.Errorf("expected error")
+		a                 = assert.New(t)
+		hasher            = (mock.HasherMockParams{
 			HashTimes:  1,
 			HashReq:    gomock.Eq(expected),
 			HashRes:    "",
@@ -52,7 +54,7 @@ func TestExtSumErr(t *testing.T) {
 		}).NewHasher(gomock.NewController(t))
 	)
 
-	actual, err := extSum(resource, secret, rand, date, hasher)
+	actual, err := extSum(resource, secret, bits, rand, date, hasher)
 	a.Empty(actual)
 	a.ErrorIs(err, expectedErr)
 }
@@ -98,13 +100,13 @@ func TestVerifyExt(t *testing.T) {
 				resource: "resource",
 				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource\nsecret1648762844",
+				ext:      "resource\nsecret16487628440",
 			},
 			secret: "secret",
 			hasherMock: mock.HasherMockParams{
 				HashTimes:  1,
-				HashReq:    gomock.Eq("resource\nsecret1648762844"),
-				HashRes:    "resource\nsecret1648762844",
+				HashReq:    gomock.Eq("resource\nsecret16487628440"),
+				HashRes:    "resource\nsecret16487628440",
 				HashResErr: nil,
 			},
 			expectedErr: nil,
@@ -120,8 +122,8 @@ func TestVerifyExt(t *testing.T) {
 			secret: "secret",
 			hasherMock: mock.HasherMockParams{
 				HashTimes:  1,
-				HashReq:    gomock.Eq("resource\nsecret1648762844"),
-				HashRes:    "resource\nsecret1648762844",
+				HashReq:    gomock.Eq("resource\nsecret16487628440"),
+				HashRes:    "resource\nsecret16487628440",
 				HashResErr: nil,
 			},
 			expectedErr: ErrExtInvalid,
@@ -132,12 +134,12 @@ func TestVerifyExt(t *testing.T) {
 				resource: "resource",
 				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource\nsecret1648762844",
+				ext:      "resource\nsecret16487628440",
 			},
 			secret: "secret",
 			hasherMock: mock.HasherMockParams{
 				HashTimes:  1,
-				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashReq:    gomock.Eq("resource\nsecret16487628440"),
 				HashRes:    "wrong",
 				HashResErr: nil,
 			},
@@ -149,12 +151,12 @@ func TestVerifyExt(t *testing.T) {
 				resource: "resource",
 				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource\nsecret1648762844",
+				ext:      "resource\nsecret16487628440",
 			},
 			secret: "secret",
 			hasherMock: mock.HasherMockParams{
 				HashTimes:  1,
-				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashReq:    gomock.Eq("resource\nsecret16487628440"),
 				HashRes:    "wrong",
 				HashResErr: nil,
 			},
@@ -166,12 +168,12 @@ func TestVerifyExt(t *testing.T) {
 				resource: "resource",
 				rand:     []byte{10},
 				date:     time.Unix(1648762844, 0),
-				ext:      "resource\nsecret1648762844",
+				ext:      "resource\nsecret16487628440",
 			},
 			secret: "secret",
 			hasherMock: mock.HasherMockParams{
 				HashTimes:  1,
-				HashReq:    gomock.Eq("resource\nsecret1648762844"),
+				HashReq:    gomock.Eq("resource\nsecret16487628440"),
 				HashRes:    "",
 				HashResErr: hasherErr,
 			},

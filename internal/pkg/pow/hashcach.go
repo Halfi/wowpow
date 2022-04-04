@@ -101,7 +101,7 @@ func InitHashcash(bits int32, resource, secret string, hasher hash.Hasher) (*Has
 	t := time.Now()
 	randBytes := randomBytes()
 
-	extSum, err := extSum(resource, secret, randBytes, t, hasher)
+	extSum, err := extSum(resource, secret, bits, randBytes, t, hasher)
 	if err != nil {
 		return nil, fmt.Errorf("calculate hashcash ext hash sum error: %w", err)
 	}
@@ -164,12 +164,13 @@ func randomBytes() []byte {
 //    - randBytes - random number
 //    - secret    - secret known only on server
 //    - time      - timestamp
-func extSum(resource, secret string, randBytes []byte, t time.Time, hasher hash.Hasher) (string, error) {
+func extSum(resource, secret string, bits int32, randBytes []byte, t time.Time, hasher hash.Hasher) (string, error) {
 	var ext bytes.Buffer
 	ext.WriteString(resource)
 	ext.Write(randBytes)
 	ext.WriteString(secret)
 	ext.WriteString(strconv.Itoa(int(t.Unix())))
+	ext.WriteString(strconv.Itoa(int(bits)))
 
 	extSum, err := hasher.Hash(ext.String())
 	if err != nil {
@@ -183,7 +184,7 @@ func extSum(resource, secret string, randBytes []byte, t time.Time, hasher hash.
 // See extSum description for hash generating details
 func VerifyExt(secret string, hasher hash.Hasher) ValidateExtFunc {
 	return func(h *Hashcach) error {
-		extSum, err := extSum(h.resource, secret, h.rand, h.date, hasher)
+		extSum, err := extSum(h.resource, secret, h.bits, h.rand, h.date, hasher)
 		if err != nil {
 			return fmt.Errorf("verify ext sum error: %w", err)
 		}
